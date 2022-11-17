@@ -425,8 +425,7 @@
 (define (compile-shift f k e c)
   ;; Construct a lambda (Lam _ v E[v]) and call f with it
   (let ([kont (gensym)]
-        [shift (gensym)]
-        [trust (gensym)])
+        [shift (gensym)])
     (seq (compile-lam f (list k) e c) ; get the body in rax
          ;; Construct a continuation from the stack between here and r12
          ;; the continuation has the code pointer, the stack height, and the stack
@@ -463,6 +462,11 @@
          (Xor rax type-proc)
          (Mov rax (Offset rax 0)) ; fetch the code label
          (Jmp rax) ; return point is the reset return
+
+         ;; reset done
+         (Label shift)
+         (Pop r12)
+         (Ret)
          
          ;; the above instruction should not return, so we can put the "function" here
          (Label kont)
@@ -490,13 +494,7 @@
                 (Jmp loop)
                 (Label done)))
 
-         ;(Lea r8 shift)
-         ;(Mov r8 (Offset rcx 0))
-         (Jmp trust) ; t r u s t
-         (Label shift)
-         (Pop r12)
-         (Ret)
-         (Label trust)
+         ; t r u s t
          )))
 
 ;; Expr CEnv -> Asm
