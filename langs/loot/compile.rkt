@@ -8,6 +8,15 @@
 (define rsp 'rsp) ; stack
 (define rdi 'rdi) ; arg
 
+(define rcx 'rcx) ; scratch
+(define rdx 'rdx) ; scratch
+
+(define r8 'r8)
+(define r9 'r9)
+(define r10 'r10)
+(define r11 'r11) ; scratch
+(define r12 'r12) ; reset
+
 ;; type CEnv = [Listof Id]
 
 ;; Prog -> Asm
@@ -19,9 +28,14 @@
            (Label 'entry)
            (Push rbx)    ; save callee-saved register	   
            (Mov rbx rdi) ; recv heap pointer
+           (Lea rax 'reset_top)
+           (Push rax)
+           (Mov r12 rsp) ; initialize r12 to bottom of the stack
            (compile-defines-values ds)
            (compile-e e (reverse (define-ids ds)) #f)
            (Add rsp (* 8 (length ds))) ;; pop function definitions
+           (Ret)
+           (Label 'reset_top)
            (Pop rbx)     ; restore callee-save register
            (Ret)
            (compile-defines ds)
@@ -108,7 +122,9 @@
     [(Let x e1 e2)      (compile-let x e1 e2 c t?)]
     [(App e es)         (compile-app e es c t?)]
     [(Lam f xs e)       (compile-lam f xs e c)]
-    [(Match e ps es)    (compile-match e ps es c t?)]))
+    [(Match e ps es)    (compile-match e ps es c t?)]
+    [(Shift f k e)      (compile-shift f k e c)]
+    [(Reset e)          (compile-reset e c)]))
 
 ;; Value -> Asm
 (define (compile-value v)
@@ -404,6 +420,110 @@
                    (Add rsp (* 8 (length cm))) ; haven't pushed anything yet
                    (Jmp next))
               cm2))])])]))
+
+;; Id Id Expr CEnv -> Asm
+(define (compile-shift f k e c)
+  ;; Construct a lambda (Lam _ v E[v]) and call f with it
+  (let ([kont (gensym)]
+        [shift (gensym)]
+        [trust (gensym)])
+    (seq (compile-lam f (list k) e c) ; get the body in rax
+         ;; Construct a continuation from the stack between here and r12
+         ;; the continuation has the code pointer, the stack height, and the stack
+         (Lea r8 kont)
+         (Mov (Offset rbx 0) r8)
+         (Mov r9 r12)
+         (Sub r9 rsp) ; r9 has (- r12 rsp) or height of stack from here to innermost reset
+         (Mov (Offset rbx 8) r9)
+         (Mov r8 rbx)
+         (Or r8 type-proc)
+         (Add rbx 16)
+
+         ;; copy stack segment to heap
+         (let ([loop (gensym)]
+               [done (gensym)])
+           (seq (Xor r10 r10)
+                (Label loop)
+                (Cmp r10 r9)
+                (Je done)
+                (Mov rdx rsp)
+                (Add rdx r10)
+                (Mov r11 (Offset rdx 0))
+                (Mov rcx rbx)
+                (Add rcx r10)
+                (Mov (Offset rcx 0) r11)
+                (Add r10 8)
+                (Jmp loop)
+                (Label done)))
+
+         (Add rbx r9)
+         (Mov rsp r12) ; set the stack to reset point
+         (Push rax) ; prepare the call of the shift body
+         (Push r8)
+         (Xor rax type-proc)
+         (Mov rax (Offset rax 0)) ; fetch the code label
+         (Jmp rax) ; return point is the reset return
+         
+         ;; the above instruction should not return, so we can put the "function" here
+         (Label kont)
+         (Pop rax) ; pop context-filling value
+         (Pop rcx) ; pop continuation
+         (Xor rcx type-proc)
+         (Push r12) ; push previous reset point
+         (Lea r8 shift)
+         (Push r8)
+         (Mov r12 rsp)
+         
+         ;; copy heap-stored stack to top of stack
+         (let ([loop (gensym)]
+               [done (gensym)])
+           (seq (Lea r9 (Offset rcx 16))
+                (Mov r10 (Offset rcx 8))
+                (Label loop)
+                (Cmp r10 0)
+                (Je done)
+                (Sub r10 8)
+                (Mov rdx rcx)
+                (Add rdx r10)
+                (Mov r11 (Offset rdx 16))
+                (Push r11)
+                (Jmp loop)
+                (Label done)))
+
+         ;(Lea r8 shift)
+         ;(Mov r8 (Offset rcx 0))
+         (Jmp trust) ; t r u s t
+         (Label shift)
+         (Pop r12)
+         (Ret)
+         (Label trust)
+         )))
+
+;; Expr CEnv -> Asm
+(define (compile-reset e c)
+  ;; Store the current stack location as the next reset point
+  (let ([fvs (fv e)]
+        [reset (gensym)])
+    (seq (Push r12) ; push previous reset point
+         (Lea rax reset)
+         (Push rax) ; push return from reset
+         (Mov r12 rsp)
+         (free-vars-to-stack fvs (cons #f (cons #f c)))
+         (compile-e e (reverse fvs) #f)
+         (Add rsp (* 8 (length fvs))) ; clean up reset env
+         (Ret)
+         (Label reset)
+         (Pop r12))))
+
+;; [Listof Id] CEnv Int -> Asm
+;; Copy the values of given free variables into the stack
+(define (free-vars-to-stack fvs c)
+  (match fvs
+    ['() (seq)]
+    [(cons x fvs)
+     (seq (Mov r8 (Offset rsp (lookup x c)))
+          (Push r8)
+          (free-vars-to-stack fvs (cons #f c)))]))
 
 ;; Id CEnv -> Integer
 (define (lookup x cenv)

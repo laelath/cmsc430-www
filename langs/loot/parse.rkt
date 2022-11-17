@@ -49,6 +49,12 @@
               (andmap symbol? xs))
          (Lam (gensym 'lambda) xs (parse-e e))
          (error "parse lambda error"))]
+    [(list 'shift k e)
+     (if (symbol? k)
+         (Shift (gensym 'shift) k (parse-e e))
+         (error "parse shift error"))]
+    [(list 'reset e)
+     (Reset (parse-e e))]
     [(cons e es)
      (App (parse-e e) (map parse-e es))]    
     [_ (error "Parse error" s)]))
