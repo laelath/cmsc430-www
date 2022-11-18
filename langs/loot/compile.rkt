@@ -5,6 +5,7 @@
 ;; Registers used
 (define rax 'rax) ; return
 (define rbx 'rbx) ; heap
+(define rbp 'rbp) ; stack base
 (define rsp 'rsp) ; stack
 (define rdi 'rdi) ; arg
 
@@ -15,7 +16,6 @@
 (define r9 'r9)
 (define r10 'r10)
 (define r11 'r11) ; scratch
-(define r12 'r12) ; reset
 
 ;; type CEnv = [Listof Id]
 
@@ -26,16 +26,18 @@
      (prog (externs)
            (Global 'entry)
            (Label 'entry)
-           (Push rbx)    ; save callee-saved register	   
+           (Push rbx)    ; save callee-saved register
            (Mov rbx rdi) ; recv heap pointer
+           (Push rbp)    ; save stack base register
            (Lea rax 'reset_top)
            (Push rax)
-           (Mov r12 rsp) ; initialize r12 to bottom of the stack
+           (Mov rbp rsp) ; initialize rbp to bottom of the stack
            (compile-defines-values ds)
            (compile-e e (reverse (define-ids ds)) #f)
            (Add rsp (* 8 (length ds))) ;; pop function definitions
            (Ret)
            (Label 'reset_top)
+           (Pop rbp)     ; restore stack base register
            (Pop rbx)     ; restore callee-save register
            (Ret)
            (compile-defines ds)
@@ -431,7 +433,7 @@
          ;; the continuation has the code pointer, the stack height, and the stack
          (Lea r8 kont)
          (Mov (Offset rbx 0) r8)
-         (Mov r9 r12)
+         (Mov r9 rbp)
          (Sub r9 rsp) ; r9 has (- r12 rsp) or height of stack from here to innermost reset
          (Mov (Offset rbx 8) r9)
          (Mov r8 rbx)
@@ -456,7 +458,7 @@
                 (Label done)))
 
          (Add rbx r9)
-         (Mov rsp r12) ; set the stack to reset point
+         (Mov rsp rbp) ; set the stack to reset point
          (Push rax) ; prepare the call of the shift body
          (Push r8)
          (Xor rax type-proc)
@@ -465,7 +467,7 @@
 
          ;; reset done
          (Label shift)
-         (Pop r12)
+         (Pop rbp)
          (Ret)
          
          ;; the above instruction should not return, so we can put the "function" here
@@ -473,10 +475,10 @@
          (Pop rax) ; pop context-filling value
          (Pop rcx) ; pop continuation
          (Xor rcx type-proc)
-         (Push r12) ; push previous reset point
+         (Push rbp) ; push previous reset point
          (Lea r8 shift)
          (Push r8)
-         (Mov r12 rsp)
+         (Mov rbp rsp)
          
          ;; copy heap-stored stack to top of stack
          (let ([loop (gensym)]
@@ -502,16 +504,16 @@
   ;; Store the current stack location as the next reset point
   (let ([fvs (fv e)]
         [reset (gensym)])
-    (seq (Push r12) ; push previous reset point
+    (seq (Push rbp) ; push previous reset point
          (Lea rax reset)
          (Push rax) ; push return from reset
-         (Mov r12 rsp)
+         (Mov rbp rsp)
          (free-vars-to-stack fvs (cons #f (cons #f c)))
          (compile-e e (reverse fvs) #f)
          (Add rsp (* 8 (length fvs))) ; clean up reset env
          (Ret)
          (Label reset)
-         (Pop r12))))
+         (Pop rbp))))
 
 ;; [Listof Id] CEnv Int -> Asm
 ;; Copy the values of given free variables into the stack
