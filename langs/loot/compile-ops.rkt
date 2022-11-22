@@ -21,7 +21,16 @@
                      unpad-stack)]
     ['peek-byte (seq pad-stack
                      (Call 'peek_byte)
-                     unpad-stack)]))
+                     unpad-stack)]
+    ['make-continuation-prompt-tag
+     (seq (Lea r8 'continuation_prompt_count)
+          (Mov rax (Offset r8 0))
+          (Add rax 1)
+          (Mov (Offset r8 0) rax)
+          (Sal rax ptag-shift)
+          (Or rax type-ptag))]
+    ['default-continuation-prompt-tag
+     (seq (Mov rax type-ptag))]))
 
 ;; Op1 -> Asm
 (define (compile-op1 p)
@@ -310,6 +319,8 @@
   (assert-type ptr-mask type-str))
 (define assert-proc
   (assert-type ptr-mask type-proc))
+(define assert-ptag
+  (assert-type mask-ptag type-ptag))
 
 (define (assert-codepoint r)
   (let ((ok (gensym)))

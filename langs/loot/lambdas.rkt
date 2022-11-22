@@ -32,6 +32,6 @@
     [(App e1 es)        (append (lambdas-e e1) (append-map lambdas-e es))]
     [(Lam f xs e1)      (cons e (lambdas-e e1))]
     [(Match e ps es)    (append (lambdas-e e) (append-map lambdas-e es))]
-    [(Shift f k e)      (cons (Lam f (list k) e) (lambdas-e e))]
-    [(Reset e)          (lambdas-e e)]
+    [(Shift e1 f k e2)  (cons (Lam f (list k) e2) (append (lambdas-e e1) (lambdas-e e2)))]
+    [(Reset e1 e2)      (append (lambdas-e e1) (lambdas-e e2))]
     [_                  '()]))

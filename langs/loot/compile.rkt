@@ -12,10 +12,11 @@
 (define rcx 'rcx) ; scratch
 (define rdx 'rdx) ; scratch
 
-(define r8 'r8)
-(define r9 'r9)
-(define r10 'r10)
+(define r8 'r8)   ; scratch
+(define r9 'r9)   ; scratch
+(define r10 'r10) ; scratch
 (define r11 'r11) ; scratch
+(define r12 'r12) ; scratch
 
 ;; type CEnv = [Listof Id]
 
@@ -26,25 +27,34 @@
      (prog (externs)
            (Global 'entry)
            (Label 'entry)
+           (Push rbp)    ; save base register
            (Push rbx)    ; save callee-saved register
            (Mov rbx rdi) ; recv heap pointer
-           (Push rbp)    ; save stack base register
+           
+           (Push 0) ; special case for top of continuation stack
+           (Push type-ptag) ; default continuation tag
            (Lea rax 'reset_top)
            (Push rax)
            (Mov rbp rsp) ; initialize rbp to bottom of the stack
+           
            (compile-defines-values ds)
            (compile-e e (reverse (define-ids ds)) #f)
            (Add rsp (* 8 (length ds))) ;; pop function definitions
+           
            (Ret)
-           (Label 'reset_top)
-           (Pop rbp)     ; restore stack base register
+           (reset-post 'reset_top)
+           
            (Pop rbx)     ; restore callee-save register
+           (Pop rbp)
            (Ret)
            (compile-defines ds)
            (compile-lambda-defines (lambdas p))
            (Label 'raise_error_align)
            pad-stack
-           (Call 'raise_error))]))
+           (Call 'raise_error)
+           (Data)
+           (Label 'continuation_prompt_count)
+           (Dq 0))]))
 
 (define (externs)
   (seq (Extern 'peek_byte)
@@ -125,8 +135,8 @@
     [(App e es)         (compile-app e es c t?)]
     [(Lam f xs e)       (compile-lam f xs e c)]
     [(Match e ps es)    (compile-match e ps es c t?)]
-    [(Shift f k e)      (compile-shift f k e c)]
-    [(Reset e)          (compile-reset e c)]))
+    [(Shift e1 f k e2)  (compile-shift e1 f k e2 c)]
+    [(Reset e1 e2)      (compile-reset e1 e2 c)]))
 
 ;; Value -> Asm
 (define (compile-value v)
@@ -423,22 +433,79 @@
                    (Jmp next))
               cm2))])])]))
 
+
+;; offset to next reset frame
+;; ----------
+;; tag
+;; ----------
+;; return
+;; ---------- <-- rbp
+
+;; Expr CEnv -> Asm
+(define (compile-reset e1 e2 c)
+  (let ([fvs (fv e2)]
+        [reset (gensym)])
+    (seq (compile-e e1 c #f)
+         (assert-ptag rax)
+         (reset-pre rax reset)
+         (free-vars-to-stack fvs (cons #f (cons #f (cons #f c))))
+         (compile-e e2 (reverse fvs) #f)
+         (Add rsp (* 8 (length fvs)))
+         (Ret)
+         (reset-post reset)
+         )))
+
+(define (reset-pre rtag lbl)
+  (seq (Sub rbp rsp)
+       (Add rbp 24)
+       (Push rbp)  ; save offset to next continuation frame
+       (Push rtag) ; save tag
+       (Lea r8 lbl)
+       (Push r8)   ; push return
+       (Mov rbp rsp)))
+
+(define (reset-post lbl)
+  (seq (Label lbl)
+       (Pop r8)  ; pop tag (ignored)
+       (Pop rbp) ; restore base pointer
+       (Sub rbp 24)
+       (Add rbp rsp)))
+
 ;; Id Id Expr CEnv -> Asm
-(define (compile-shift f k e c)
-  ;; Construct a lambda (Lam _ v E[v]) and call f with it
+(define (compile-shift e1 f k e2 c)
+    ;; Construct a lambda (Lam _ v E[v]) and call f with it
   (let ([kont (gensym)]
         [shift (gensym)])
-    (seq (compile-lam f (list k) e c) ; get the body in rax
+    (seq (compile-e e1 c #f)
+         (assert-ptag rax)
+         (Mov r12 rbp)
+         (let ([unwind (gensym)]
+               [found (gensym)])
+           ;; TODO: detect base of stack & error if going past it
+           (seq (Label unwind)
+                (Mov r8 (Offset r12 8))
+                (Cmp r8 rax)
+                (Je found)
+                (Mov r11 (Offset r12 16))
+                (Cmp r11 0)
+                (Je 'raise_error_align)
+                (Add r12 r11)
+                (Jmp unwind)
+                (Label found)))
+         (Mov r11 rax) ; save tag in r11
+         (Mov rbp r12) ; adjust rbp
+         ;; Implicitly using the fact that compile-lam won't touch r11, r12
+         (compile-lam f (list k) e2 c) ; get the body in rax
          ;; Construct a continuation from the stack between here and r12
          ;; the continuation has the code pointer, the stack height, and the stack
          (Lea r8 kont)
-         (Mov (Offset rbx 0) r8)
+         (Mov (Offset rbx 0) r8) ; code label
+         (Mov (Offset rbx 8) r11) ; continuation tag
          (Mov r9 rbp)
          (Sub r9 rsp) ; r9 has (- r12 rsp) or height of stack from here to innermost reset
-         (Mov (Offset rbx 8) r9)
+         (Mov (Offset rbx 16) r9)
          (Mov r8 rbx)
          (Or r8 type-proc)
-         (Add rbx 16)
 
          ;; copy stack segment to heap
          (let ([loop (gensym)]
@@ -452,22 +519,22 @@
                 (Mov r11 (Offset rdx 0))
                 (Mov rcx rbx)
                 (Add rcx r10)
-                (Mov (Offset rcx 0) r11)
+                (Mov (Offset rcx 24) r11)
                 (Add r10 8)
                 (Jmp loop)
                 (Label done)))
 
+         (Add rbx 24)
          (Add rbx r9)
          (Mov rsp rbp) ; set the stack to reset point
-         (Push rax) ; prepare the call of the shift body
-         (Push r8)
+         (Push rax) ; lambda for shift body
+         (Push r8)  ; lambda for shift continuation
          (Xor rax type-proc)
          (Mov rax (Offset rax 0)) ; fetch the code label
          (Jmp rax) ; return point is the reset return
 
          ;; reset done
-         (Label shift)
-         (Pop rbp)
+         (reset-post shift)
          (Ret)
          
          ;; the above instruction should not return, so we can put the "function" here
@@ -475,45 +542,26 @@
          (Pop rax) ; pop context-filling value
          (Pop rcx) ; pop continuation
          (Xor rcx type-proc)
-         (Push rbp) ; push previous reset point
-         (Lea r8 shift)
-         (Push r8)
-         (Mov rbp rsp)
+         (Mov r9 (Offset rcx 8)) ; continuation tag
+         (reset-pre r9 shift)
          
          ;; copy heap-stored stack to top of stack
+         (Mov r10 (Offset rcx 16))
          (let ([loop (gensym)]
                [done (gensym)])
-           (seq (Lea r9 (Offset rcx 16))
-                (Mov r10 (Offset rcx 8))
-                (Label loop)
+           (seq (Label loop)
                 (Cmp r10 0)
                 (Je done)
                 (Sub r10 8)
                 (Mov rdx rcx)
                 (Add rdx r10)
-                (Mov r11 (Offset rdx 16))
+                (Mov r11 (Offset rdx 24))
                 (Push r11)
                 (Jmp loop)
                 (Label done)))
 
          ; t r u s t
          )))
-
-;; Expr CEnv -> Asm
-(define (compile-reset e c)
-  ;; Store the current stack location as the next reset point
-  (let ([fvs (fv e)]
-        [reset (gensym)])
-    (seq (Push rbp) ; push previous reset point
-         (Lea rax reset)
-         (Push rax) ; push return from reset
-         (Mov rbp rsp)
-         (free-vars-to-stack fvs (cons #f (cons #f c)))
-         (compile-e e (reverse fvs) #f)
-         (Add rsp (* 8 (length fvs))) ; clean up reset env
-         (Ret)
-         (Label reset)
-         (Pop rbp))))
 
 ;; [Listof Id] CEnv Int -> Asm
 ;; Copy the values of given free variables into the stack

@@ -51,10 +51,16 @@
          (error "parse lambda error"))]
     [(list 'shift k e)
      (if (symbol? k)
-         (Shift (gensym 'shift) k (parse-e e))
+         (Shift (Prim0 'default-continuation-prompt-tag) (gensym 'shift) k (parse-e e))
          (error "parse shift error"))]
     [(list 'reset e)
-     (Reset (parse-e e))]
+     (Reset (Prim0 'default-continuation-prompt-tag) (parse-e e))]
+    [(list 'shift-at e1 k e2)
+     (if (symbol? k)
+         (Shift (parse-e e1) (gensym 'shift) k (parse-e e2))
+         (error "parse shift-at error"))]
+    [(list 'reset-at e1 e2)
+     (Reset (parse-e e1) (parse-e e2))]
     [(cons e es)
      (App (parse-e e) (map parse-e es))]    
     [_ (error "Parse error" s)]))
@@ -86,7 +92,7 @@
      (PAnd (parse-pat p1) (parse-pat p2))]))
 
 (define op0
-  '(read-byte peek-byte void))
+  '(read-byte peek-byte void make-continuation-prompt-tag))
 
 (define op1
   '(add1 sub1 zero? char? write-byte eof-object?

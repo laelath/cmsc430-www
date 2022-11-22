@@ -24,10 +24,10 @@
 ;;           | (Match Expr (Listof Pat) (Listof Expr))
 ;;           | (App Expr (Listof Expr))
 ;;           | (Lam Id (Listof Id) Expr)
-;;           | (Shift Id Expr)
-;;           | (Reset Expr)
+;;           | (Shift Expr Id Id Expr)
+;;           | (Reset Expr Expr)
 ;; type Id   = Symbol
-;; type Op0  = 'read-byte
+;; type Op0  = 'read-byte | 'make-continuation-prompt-tag | 'default-continuation-prompt-tag
 ;; type Op1  = 'add1 | 'sub1 | 'zero?
 ;;           | 'char? | 'integer->char | 'char->integer
 ;;           | 'write-byte | 'eof-object?
@@ -68,8 +68,8 @@
 (struct App   (e es)       #:prefab)
 (struct Lam   (f xs e)     #:prefab)
 (struct Match (e ps es)    #:prefab)
-(struct Shift (f k e)      #:prefab)
-(struct Reset (e)          #:prefab)
+(struct Shift (e1 f k e2) #:prefab)
+(struct Reset (e1 e2)     #:prefab)
 
 (struct PVar  (x)          #:prefab)
 (struct PWild ()           #:prefab)

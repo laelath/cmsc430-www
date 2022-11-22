@@ -19,8 +19,8 @@
     [(App e1 es)        (append (fv* e1) (append-map fv* es))]
     [(Lam f xs e)       (remq* xs (fv* e))]
     [(Match e ps es)    (append (fv* e) (append-map fv-clause* ps es))]
-    [(Shift f k e)      (remq* (list k) (fv* e))]
-    [(Reset e)          (fv* e)]
+    [(Shift e1 f k e2)  (append (fv* e1) (remq* (list k) (fv* e2)))]
+    [(Reset e1 e2)      (append (fv* e1) (fv* e2))]
     [_                  '()]))
 
 ;; Pat Expr -> [Listof Id]
