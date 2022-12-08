@@ -481,7 +481,6 @@
          (Mov r12 rbp)
          (let ([unwind (gensym)]
                [found (gensym)])
-           ;; TODO: detect base of stack & error if going past it
            (seq (Label unwind)
                 (Mov r8 (Offset r12 8))
                 (Cmp r8 rax)
