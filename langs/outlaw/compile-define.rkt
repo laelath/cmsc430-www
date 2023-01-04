@@ -37,7 +37,7 @@
           (Mov (Offset (symbol->label f) 0) rax))]))
 
 ;; [Listof Lam] GEnv -> Asm
-(define (compile-lambda-defines ls g)
+#;(define (compile-lambda-defines ls g)
   (match ls
     ['() (seq)]
     [(cons l ls)
@@ -45,7 +45,7 @@
           (compile-lambda-defines ls g))]))
 
 ;; Lambda GEnv -> Asm
-(define (compile-lambda-define l g)
+#;(define (compile-lambda-define l g)
   (let ((fvs (fv- l g)))    
     (match l
       [(Lam f xs e)
@@ -96,13 +96,13 @@
           (Jmp 'raise_error_align)
           (compile-fun-case-clauses cs g))])))
 
-(define (compile-fun-case-clauses cs g)
+#;(define (compile-fun-case-clauses cs g)
   (append-map (lambda (c) (compile-lambda-define c g)) cs))
 
-(define (compile-fun-case-select cs)
+#;(define (compile-fun-case-select cs)
   (append-map compile-fun-case-selector cs))
 
-(define (compile-fun-case-selector c)
+#;(define (compile-fun-case-selector c)
   (match c
     [(Lam f xs e)
      (seq (Cmp r15 (length xs))

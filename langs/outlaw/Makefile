@@ -43,7 +43,6 @@ outlaw.rkt: compile-stdin.rkt \
 	a86/ast.rkt \
 	registers.rkt \
 	types.rkt \
-	lambdas.rkt \
 	fv.rkt \
 	utils.rkt \
 	compile-ops.rkt \

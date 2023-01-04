@@ -5,8 +5,6 @@
          "a86/ast.rkt"
          "registers.rkt"
          "types.rkt"
-         "lambdas.rkt"
-         "fv.rkt"
          "utils.rkt"
          "compile-define.rkt"
          "compile-expr.rkt"
@@ -39,7 +37,7 @@
             (Pop rbx)
 
             (Ret)
-            (compile-lambda-defines (lambdas p) gs)
+            #;(compile-lambda-defines (lambdas p) gs)
             (Global 'raise_error_align)
             (Label 'raise_error_align)
             (pad-stack)
@@ -155,6 +153,6 @@
             (compile-defines ds g)
             (Ret)
             
-            (compile-lambda-defines (lambdas-ds ds) g)
+            #;(compile-lambda-defines (lambdas-ds ds) g)
             (Data)
             (compile-literals (Prog ds))))]))
