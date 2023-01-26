@@ -33,7 +33,7 @@
           (Label (symbol->label f))
           (Dq 0)
           (Text)
-          (compile-e e '() g #f)
+          (compile-e e (list (new-frame 'here)) g)
           (Mov (Offset (symbol->label f) 0) rax))]))
 
 ;; [Listof Lam] GEnv -> Asm
@@ -49,18 +49,18 @@
   (let ((fvs (fv- l g)))    
     (match l
       [(Lam f xs e)
-       (let ((env (append (reverse fvs) (reverse xs) (list #f))))
+       (let ((env (list (Frame 'ret (append (reverse fvs) (reverse xs) (list #f))))))
          (seq (Label (symbol->label f))
               (Cmp r15 (length xs))
               (Jne 'raise_error_align)              
               (Mov rax (Offset rsp (* 8 (length xs))))
               (Xor rax type-proc)
               (copy-env-to-stack fvs 8)              
-              (compile-e e env g #t)
-              (Add rsp (* 8 (length env))) ; pop env
-              (Ret)))]
+              (compile-e e env g)
+              #;(Add rsp (* 8 (length env))) ; pop env
+              #;(Ret)))]
       [(LamRest f xs x e)
-       (let ((env (append (reverse fvs) (cons x (reverse xs)) (list #f))))
+       (let ((env (list (Frame 'ret (append (reverse fvs) (cons x (reverse xs)) (list #f))))))
          (seq (Label (symbol->label f))
               (Cmp r15 (length xs))
               (Jl 'raise_error_align)
@@ -86,9 +86,9 @@
               (Mov rax (Offset rsp (* 8 (add1 (length xs)))))
               (Xor rax type-proc)
               (copy-env-to-stack fvs 8)              
-              (compile-e e env g #t)
-              (Add rsp (* 8 (length env))) ; pop env
-              (Ret)))]
+              (compile-e e env g)
+              #;(Add rsp (* 8 (length env))) ; pop env
+              #;(Ret)))]
     [(LamCase f cs)
      (seq ; (%%% "lamcase code")
           (Label (symbol->label f))

@@ -1,5 +1,5 @@
 #lang racket
-(provide symbol->label symbol->data-label lookup pad-stack unpad-stack)
+(provide (struct-out Frame) new-frame extend-frame pad-frame symbol->label symbol->data-label lookup pad-stack unpad-stack)
 (require "a86/ast.rkt" "registers.rkt")
 
 ;; Symbol -> Label
@@ -26,14 +26,41 @@
                          (map char-encode
                               (string->list (symbol->string s)))))))
 
+(struct Frame (ret vars))
+
+(define (new-frame ret)
+  (Frame ret '()))
+
+(define (extend-frame f xs)
+  (Frame (Frame-ret f) (append xs (Frame-vars f))))
+
+(define (pad-frame f)
+  (Frame (Frame-ret f) (cons #f (Frame-vars f))))
+
 ;; Id CEnv -> [Maybe Integer]
-(define (lookup x cenv)
+#;(define (lookup x cenv)
   (match cenv
     ['() #f]
     [(cons y rest)
      (match (eq? x y)
        [#t 0]
        [#f (match (lookup x rest)
+             [#f #f]
+             [i (+ 8 i)])])]))
+
+(define (lookup x cenv)
+  (match cenv
+    ['() #f]
+    [(cons (Frame ret vars) rest)
+     (lookup-list x vars rest)]))
+
+(define (lookup-list x vars cenv)
+  (match vars
+    ['() (lookup x cenv)]
+    [(cons y rest)
+     (match (eq? x y)
+       [#t 0]
+       [#f (match (lookup-list x rest cenv)
              [#f #f]
              [i (+ 8 i)])])]))
 

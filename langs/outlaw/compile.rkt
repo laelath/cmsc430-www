@@ -32,7 +32,7 @@
             (init-lib)
             
             (compile-defines ds gs)
-            (compile-variable (last-define-id ds) '() gs)
+            #;(Mov rax (Offset (symbol->label (last-define-id ds)) 0))
 
             (Pop r15) ; restore non-volatile registers
             (Pop r12)
