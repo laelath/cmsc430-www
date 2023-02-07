@@ -37,7 +37,6 @@
              (Add rsp (* 8 n)))
          (match (Frame-ret (car c))
            ['ret (Ret)]
-           ['here (seq)]
            [s (Jmp s)]))))
 
 ;; Id CEnv GEnv -> Asm
@@ -59,20 +58,15 @@
 
 ;; Expr Expr Expr CEnv GEnv -> Asm
 (define (compile-if e1 e2 e3 c g)
-  (let ((l1 (gensym 'if)))
-    (seq (compile-e e1 (cons (new-frame 'here) c) g)
+  (let ((l0 (gensym 'here))
+        (l1 (gensym 'if)))
+    (seq (compile-e e1 (cons (new-frame l0) c) g)
+         (Label l0)
          (Cmp rax val-false)
          (Je l1)
-         (if (eq? 'here (Frame-ret (car c)))
-             (let ([l2 (gensym 'if_jp)])
-               (seq (compile-e e2 (cons (new-frame l2) c) g)
-                    (Label l1)
-                    (compile-e e3 (cons (new-frame 'here) c) g)
-                    (Label l2)
-                    (leave-frame c)))
-             (seq (compile-e e2 c g)
-                  (Label l1)
-                  (compile-e e3 c g))))))
+         (seq (compile-e e2 c g)
+              (Label l1)
+              (compile-e e3 c g)))))
 
 ;; [Listof Expr] CEnv GEnv -> Asm
 (define (compile-begin es c g)
@@ -80,8 +74,10 @@
     ['() '()]
     [(cons e '()) (compile-e e c g)]
     [(cons e es)
-     (seq (compile-e e (cons (new-frame 'here) c) g)
-          (compile-begin es c g))]))
+     (let ([l0 (gensym 'here)])
+       (seq (compile-e e (cons (new-frame l0) c) g)
+            (Label l0)
+            (compile-begin es c g)))]))
 
 ;; [Listof Id] CEnv -> CEnv
 #;(define (append-frame xs c)
@@ -113,10 +109,6 @@
 (define (compile-app f es c g)
   (match (Frame-ret (car c))
     ['ret (compile-app-tail f es c g)]
-    ['here (let ([r (gensym 'ret)])
-             (seq (compile-app-nontail f es c g r)
-                  (Label r)
-                  (leave-frame c)))]
     [s (if (empty? (Frame-vars (car c)))
            (compile-app-nontail f es c g s)
            (let ([r (gensym 'ret)])
@@ -164,16 +156,18 @@
 ;; Expr [Listof Expr] Expr CEnv GEnv Boolean -> Asm
 (define (compile-apply e es el c g)
   ;; FIXME: should have tail recursive version too
-  (let ((r (gensym 'ret)))
+  (let ((l (gensym 'here))
+        (r (gensym 'ret)))
     (seq (Lea rax r)
          (Push rax)
          (compile-es (cons e es) (pad-current-frame c) g)
-         (compile-e el (cons (new-frame 'here)
+         (compile-e el (cons (new-frame l)
                              (extend-current-frame
                               (make-list (add1 (length es)) #f)
                               (pad-current-frame c)))
                     g)
 
+         (Label l)
          (Mov r10 (Offset rsp (* 8 (length es))))
 
          (Mov r15 (length es))
@@ -246,9 +240,11 @@
   (match es
     ['() '()]
     [(cons e es)
-     (seq (compile-e e (cons (new-frame 'here) c) g)
-          (Push rax)
-          (compile-es es (pad-current-frame c) g))]))
+     (let ([l (gensym 'here)])
+       (seq (compile-e e (cons (new-frame l) c) g)
+            (Label l)
+            (Push rax)
+            (compile-es es (pad-current-frame c) g)))]))
 
 ;; [Listof Expr] CEnv GEnv -> Asm
 ;; Like compile-es, but leave last subexpression in rax (if exists)
@@ -256,24 +252,24 @@
   (match es
     ['() '()]
     [(cons e '())
-     (compile-e e (cons (new-frame 'here) c) g)]
+     (let ([l (gensym 'here)])
+       (seq (compile-e e (cons (new-frame l) c) g)
+            (Label l)))]
     [(cons e es)
-     (seq (compile-e e (cons (new-frame 'here) c) g)
-          (Push rax)
-          (compile-es* es (pad-current-frame c) g))]))
+     (let ([l (gensym 'here)])
+       (seq (compile-e e (cons (new-frame l) c) g)
+            (Label l)
+            (Push rax)
+            (compile-es* es (pad-current-frame c) g)))]))
 
 ;; Expr [Listof Pat] [Listof Expr] CEnv GEnv -> Asm
 (define (compile-match e ps es c g)
-  (seq (compile-e e (cons (new-frame 'here) c) g)
-       (Push rax) ; save away to be restored by each clause
-       (if (eq? 'here (Frame-ret (car c)))
-           (let ([done (gensym 'match_done)])
-             (seq (compile-match-clauses ps es (cons (new-frame done) (pad-current-frame c)) g)
-                  (Jmp 'raise_error_align)
-                  (Label done)
-                  (leave-frame (pad-current-frame c))))
-           (seq (compile-match-clauses ps es (pad-current-frame c) g)
-                (Jmp 'raise_error_align)))))
+  (let ([l (gensym 'here)])
+    (seq (compile-e e (cons (new-frame l) c) g)
+         (Label l)
+         (Push rax) ; save away to be restored by each clause
+         (seq (compile-match-clauses ps es (pad-current-frame c) g)
+              (Jmp 'raise_error_align)))))
 
 ;; [Listof Pat] [Listof Expr] CEnv GEnv -> Asm
 (define (compile-match-clauses ps es c g)
@@ -416,13 +412,15 @@
     [(PPred e)
      (let ((fail (gensym 'fail)))
        (list
-        (let ((r (gensym 'ret)))
+        (let ((l (gensym 'here))
+              (r (gensym 'ret)))
           (seq (Lea r15 r)
                (Push r15) ; rp
                (Push rax) ; arg (saved for the moment)
-               (compile-e e (cons (new-frame 'here)
+               (compile-e e (cons (new-frame l)
                                   (extend-current-frame (list* #f #f cm) c))
                           g)
+               (Label l)
                (Pop r15)  ;; HERE
                (Push rax)
                (Push r15)

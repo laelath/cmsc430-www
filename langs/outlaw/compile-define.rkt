@@ -28,13 +28,15 @@
 (define (compile-define d g)
   (match d
     [(Defn f e)
-     (seq ; (%%% (symbol->string f))
-          (Data)
-          (Label (symbol->label f))
-          (Dq 0)
-          (Text)
-          (compile-e e (list (new-frame 'here)) g)
-          (Mov (Offset (symbol->label f) 0) rax))]))
+     (let ([done (gensym 'done)])
+       (seq ; (%%% (symbol->string f))
+        (Data)
+        (Label (symbol->label f))
+        (Dq 0)
+        (Text)
+        (compile-e e (list (new-frame done)) g)
+        (Label done)
+        (Mov (Offset (symbol->label f) 0) rax)))]))
 
 ;; [Listof Lam] GEnv -> Asm
 (define (compile-lambda-defines ls g)
